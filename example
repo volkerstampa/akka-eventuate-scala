@@ -1,0 +1,21 @@
+#!/bin/bash -eu
+
+locations="${*:-A B C D E F}"
+
+sbt test:compile
+
+for location in $locations
+do
+    if command -v osascript >/dev/null 2>&1; then
+        osascript -e "tell app \"Terminal\"
+            do script \"cd `pwd`; ./example-location $location\"
+        end tell"
+    else
+        if command -v xterm >/dev/null 2>&1; then
+            xterm -title $site -e "./example-location $location" &
+        else
+            echo "Neiter osascript nor xterm were found";
+        fi
+    fi
+    sleep 5
+done

@@ -1,0 +1,15 @@
+<configuration>
+
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} %logger{0}: %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <logger name="akka.remote.ReliableDeliverySupervisor" level="OFF"/>
+    <logger name="akka.event.slf4j.Slf4jLogger" level="OFF"/>
+
+    <root level="DEBUG">
+        <appender-ref ref="STDOUT" />
+    </root>
+</configuration>

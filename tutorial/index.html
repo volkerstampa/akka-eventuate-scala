@@ -1,0 +1,434 @@
+<html>
+<body>
+<div>
+    <h2>eventuate tutorial</h2>
+    <p>
+    This tutorial guides you through a distributed order management application
+    based on <a href="http://rbmhtechnology.github.io/eventuate/">eventuate</a> by
+    using distributed and
+    <a href="http://martinfowler.com/eaaDev/EventSourcing.html">event-sourced</a>
+    order-actors. It
+    demonstrates the most important parts of such an application and how to build
+    one yourself. The
+    <a href="http://rbmhtechnology.github.io/eventuate/example-application.html#example-application">example</a>
+    is actually taken from the eventuate project itself
+    and only modified slightly to allow better integration into an activator template.
+    </p><p>
+    The application
+    runs an OrderManager on several nodes. Each one is able to accept
+    </p>
+    <ul>
+    <li>new oders</li>
+    <li>new oder items for an existing order</li>
+    <li>cancellation of orders</li>
+    <li>removal of items from an existing oder</li>
+    </ul>
+    <p>
+    The changes are replicated to all connected nodes. Changing the same order on
+    multiple nodes concurrently is considered a conflict. In that case
+    multiple versions of this order are maintained until one is picked <em>interactively</em>
+    to resolve the conflict.
+    </p>
+</div>
+<div>
+    <h2>The application: OrderLocation</h2>
+
+    <p>
+        The entry into the application is
+        <a href="#code/src/main/scala/sample/eventuate/OrderLocation.scala" class="shortcut">OrderLocation</a>.
+        It starts the actor-system and the actors
+        <code>OrderManager</code> as well as <code>OrderView</code> in the
+        akka-typical manner. What makes it an eventuate-based application that supports distributed
+        deployment is the
+        <a href="http://rbmhtechnology.github.io/eventuate/latest/api/index.html#com.rbmhtechnology.eventuate.ReplicationEndpoint">ReplicationEndpoint</a>.
+        This takes care of replicating changes to all connected <code>ReplicationEndpoint</code>s.
+        A <code>ReplicationEndpoint</code> can either be setup programmatically or (as in this case) by
+        <a href="#code/src/main/resources/location-C.conf" class="shortcut">configuration</a>. For this on each <em>node</em>
+        akka-remoting
+        host and port (under which this <code>RelicationEndpoint</code> is available) needs to be defined:
+    </p>
+    <pre><code>
+akka.remote.netty.tcp.hostname = "127.0.0.1"
+akka.remote.netty.tcp.port=2554
+    </code></pre>
+    <p>
+        as well as an endpoint-id and the replication-partners on the other nodes:
+    </p>
+    <pre><code>
+endpoint.id = "C"
+endpoint.connections = ["127.0.0.1:2552", "127.0.0.1:2553", "127.0.0.1:2555"]
+    </code></pre>
+    <p>
+        So in this case <code>ReplicationEndpoint</code> C listens on 127.0.0.1:2554 and connects to
+        <code>ReplicationEndpoint</code>s on <em>other nodes</em> listening on
+        127.0.0.1:2552, 127.0.0.1:2553 and 127.0.0.1:2555.
+    </p>
+</div>
+<div>
+    <h2>The order manager</h2>
+
+    <p>
+    At the heart of the application is the
+        <a href="#code/src/main/scala/sample/eventuate/OrderManager.scala" class="shortcut">OrderManager</a>.
+    It is implemented as
+    <a href="http://rbmhtechnology.github.io/eventuate/latest/api/index.html#com.rbmhtechnology.eventuate.EventsourcedView">EventsourcedView</a>
+    to better illustrate how orders are created in the distributed system. For the moment
+    it is enough to assume that it is a plain actor and its <code>onCommand</code> method is actually the
+    <code>receive</code> method of an actor.
+    </p><p>
+    Its main purpose is to maintain a <code>Map</code> of
+    <a href="#code/src/main/scala/sample/eventuate/OrderActor.scala" class="shortcut">OrderActors</a>
+    by id each one representing a specific
+    order and dispatch <code>OrderCommand</code>s or a <code>Resolve</code>-command to them (to modify the order).
+    Additionally it allows to retrieve the current state of all orders (currently in memory).
+    </p>
+</div>
+<div>
+    <h2>The order-actor</h2>
+
+    <p>
+        A single order is represented by an
+        <a href="#code/src/main/scala/sample/eventuate/OrderActor.scala" class="shortcut">OrderActor</a>.
+        It is implemented as an
+        <a href="http://rbmhtechnology.github.io/eventuate/latest/api/index.html#com.rbmhtechnology.eventuate.EventsourcedActor">EventsourcedActor</a>.
+        It represents a special case of an
+        <a href="http://martinfowler.com/bliki/DDD_Aggregate.html">aggregate root</a>
+        and that is why it defines
+        the member <code>aggregateId</code>. This has to be an application wide unique id.
+        Even eventsourced aggregate roots of different type must not share the same ids.
+        In addition to this it defines the members <code>replicaId</code> and <code>eventLog</code>.
+        <code>replicaId</code> typically
+        identifies a node or location. The idea is that there are several <code>OrderActor</code>-instances
+        with the same <code>orderId</code> (respectively <code>aggregateId</code>)
+        at different nodes (and thus with different <code>replicaId</code>) and state-changes to one of them are replicated to the
+        others so that they are eventually all in the same state.
+        For this an
+        <code>EventsourcedActor</code> defines the two methods:
+    </p>
+    <ul>
+        <li><code>onCommand</code></li>
+        <li><code>onEvent</code></li>
+    </ul>
+    <p>
+        The purpose of <code>onCommand</code> is to process commands (of type
+        <code>OrderCommand</code>) that sre sent to change
+        the state of the order (like <code>AddOrderItem</code>) by
+    </p>
+    <ul>
+        <li>verifying that the command is valid and can be accepted and in case it is</li>
+        <li>emitting an event (or multiple) that describes the state-change (by calling <code>persist(event)</code>)</li>
+    </ul>
+    <p>
+        So for example if an <code>AddOrderItem</code>-command can be accepted the
+        <code>onCommand</code>-handler emits an <code>OrderItemAdded</code>-event.
+        Before this event is processed by the <code>onEvent</code>-handler to
+        perform the requested state-change, it is persisted by eventuate to the
+        event-log (represented by the member <code>eventLog</code>).
+    </p>
+    <p>
+        This reflects the core principle of eventsourced applications. Instead of
+        persisting the current state, state-changes are persisted. When the application (or just the actor)
+        is restarted all persisted events are replayed (i.e. the <code>onEvent</code>-handler
+        is called for each of them) to reconstruct the state as before.
+    </p>
+    <p>
+        Note that <code>onCommand</code> and <code>onEvent</code> are both called during normal
+        actor message dispatch so they can safely access and modify an actor's mutable state,
+        however as persisting is done asynchronously they are not invoked through a single message.
+        Nonetheless eventuate guarantees by default that no new command slips between an
+        <code>onCommand</code>-call and the <code>onEvent</code>-calls for each emitted/persisted
+        event by stashing commands that arrive in the meantime. This guarantee can be
+        <a href="http://rbmhtechnology.github.io/eventuate/reference/event-sourcing.html#state-synchronization">relaxed</a>
+        for performance reasons.
+    </p>
+    <p>
+        eventuate provides two additional important features:
+    </p>
+    <ol>
+        <li>Once persisted it replicates the event to all connected nodes and calls
+            the <code>onEvent</code>-handler of all <em>affected</em> eventsourced-actors on all nodes. In this
+            case the affected eventsourced actor is an (already active) OrderActor with the same aggregate-id.</li>
+        <li>It tracks causality of events, i.e. it ensures that an event that
+            <a href="http://rbmhtechnology.github.io/eventuate/user-guide.html#detecting-concurrent-updates"><em>is known</em></a>
+            to has
+            happened before another event is consumed by all <em>affected</em> actors' <code>onEvent</code>-handler
+            before the other event</li>
+    </ol>
+</div>
+<div>
+    <h2>The order-view</h2>
+    <p>
+        Another typical element of eventsourced application are so called
+        <a href="http://rbmhtechnology.github.io/eventuate/reference/event-sourcing.html#event-sourced-views">eventsourced views</a>.
+        These are actors that consume events (to build up internal state) but cannot emit any. They
+        can be used to implement the query-side of
+        a <a href="http://martinfowler.com/bliki/CQRS.html">CQRS</a> based application.
+    </p>
+    <p>
+        The
+        <a href="#code/src/main/scala/sample/eventuate/OrderView.scala" class="shortcut">OrderView</a>
+        implements a simple example of such an
+        <a href="http://rbmhtechnology.github.io/eventuate/latest/api/index.html#com.rbmhtechnology.eventuate.EventsourcedView">EventsourcedView</a>.
+        As it does not define <code>aggregateId</code> it consumes all events that are written to its
+        <code>eventLog</code> either directly by eventsourced actors on the same node or through replication.
+    </p>
+    <p>
+        Here the <code>OrderView</code> simply counts for each order its updates
+        (i.e. the emitted <code>OrderEvent</code>s) and allows to query for this number by order-id.
+    </p>
+</div>
+<div>
+    <h2>Running the example</h2>
+    <p>
+        On the <a href="#run" class="shortcut">Run</a>-tab you can start an example-setup
+        with two locations (C and D)
+        running in a single JVM in action (main file: <code>sample.eventuate.OrderBot</code>).
+        A bot will send commands
+        alternating to the <code>OrderManager</code>s of both locations.
+    </p>
+    <p>
+        When you start it the first time you will see something like this in the log-output:
+    </p>
+        <pre><code>
+( 1) 15:40:16.965 CreateOrderAction$: ------- Send CreateOrder to location-D (1/9) -------
+( 1) 15:40:16.966 OrderManager: [D]: Process command: CreateOrder(0762ee15-c570-4c57-8b03-bf757418df9f)
+( 2) 15:40:16.966 OrderManager: [D]: Create OrderActor for 0762ee15-c570-4c57-8b03-bf757418df9f
+( 3) 15:40:16.971 OrderActor: [D]: OrderCreated: [0762ee15-c570-4c57-8b03-bf757418df9f] items= cancelled=false
+( 5) 15:40:16.978 OrderManager: [C]: Create OrderActor for 0762ee15-c570-4c57-8b03-bf757418df9f
+( 6) 15:40:16.981 OrderActor: [C]: Initialized from Log: [0762ee15-c570-4c57-8b03-bf757418df9f] items= cancelled=false
+( 7) 15:40:19.978 AddOrderItemAction$: ------- Send AddOrderItem to location-C (2/9) --------
+( 8) 15:40:19.978 OrderManager: [C]: Process command: AddOrderItem(0762ee15-c570-4c57-8b03-bf757418df9f,Fqmtv)
+( 9) 15:40:19.984 OrderActor: [C]: OrderItemAdded: [0762ee15-c570-4c57-8b03-bf757418df9f] items=Fqmtv cancelled=false
+(10) 15:40:19.990 OrderActor: [D]: OrderItemAdded: [0762ee15-c570-4c57-8b03-bf757418df9f] items=Fqmtv cancelled=false
+        </code></pre>
+    <p>
+        This shows that:
+    </p>
+    <ol>
+        <li>A <code>CreateOrder</code>-command is sent to D.</li>
+        <li>D's <code>OrderManager</code> starts the <code>OrderActor</code>-accordingly.</li>
+        <li>The <code>OrderActor</code> emits the <code>OrderCreated</code> event.</li>
+        <li>This event gets replicated to location C.</li>
+        <li>C's <code>OrderManager</code> sees it and eagerly starts a corresponding <code>OrderActor</code>.</li>
+        <li>This <code>OrderActor</code> gets initialized from C's event log
+            that already contains the replicated event and thus ends up in the
+            same state as D's order.</li>
+        <li>After a short pause an <code>AddOrderItem</code>-command for this order is sent to C.</li>
+        <li>C's <code>OrderManager</code> dispatches the command to the <code>OrderActor</code>,</li>
+        <li>which emits a corresponding <code>OrderItemAdded</code>-event</li>
+        <li>The event gets replicated to D und the (already existing) <code>OrderActor</code>
+            can consume the same event to bring itself into the same state as C's order.</li>
+    </ol>
+</div>
+<div>
+    <h2>Concurrent events and conflicts</h2>
+
+    <p>
+        Now that you have seen the example application you may wonder what happens if
+        an item is added to the same order on both locations C and D simultaneously.
+        By tracking causality of events eventuate can detect concurrent events
+        and thus potentially conflicting updates.
+    </p>
+    <p>
+        You can actually try this out by commenting the sleep-statement in
+        <a href="#code/src/main/scala/sample/eventuate/OrderBot.scala" class="shortcut">OrderBot</a>
+        and running the example again. As the activator UI gives access to a
+        limited number of log-lines only, it makes sense to test this using
+        sbt started from a terminal. For this execute:
+    </p>
+    <pre><code>sbt "runMain sample.eventuate.OrderBot"</code></pre>
+    <p>
+        Depending on your hardware you may need a couple of tries or it might even make sense
+        to increase the total number of commands sent to the application (<code>sample.eventuate.Action#total</code>),
+        but eventually you should find something like this in the output:
+    </p>
+    <pre><code>
+16:25:59.248 OrderActor: [C]: OrderItemAdded: Conflict:
+- version 0: [5f789bc3-9a20-4741-a6c6-dd87cfe36042] items=XN7iM,3hZQO cancelled=false
+- version 1: [5f789bc3-9a20-4741-a6c6-dd87cfe36042] items=XN7iM,T6dEy cancelled=false
+...
+16:25:59.252 OrderActor: [D]: OrderItemAdded: Conflict:
+- version 0: [5f789bc3-9a20-4741-a6c6-dd87cfe36042] items=XN7iM,T6dEy cancelled=false
+- version 1: [5f789bc3-9a20-4741-a6c6-dd87cfe36042] items=XN7iM,3hZQO cancelled=false
+    </code></pre>
+    <p>
+        In this case the bot added to the order with id 5f789bc3... (which already
+        contained item XN7iM) <em>simultaneously</em> the items 3hZQO and T6dEy.
+        As the bot actually runs purely sequential, simultaneously in this case means
+        the items were added on nodes C and D before the corresponding event was replicated
+        to the other location.
+    </p>
+    <p>
+        By using
+        <a href="http://rbmhtechnology.github.io/eventuate/latest/api/index.html#com.rbmhtechnology.eventuate.ConcurrentVersions">ConcurrentVersions</a>
+        an actor is able to maintain a
+        <a href="http://rbmhtechnology.github.io/eventuate/user-guide.html#tracking-conflicting-versions">tree of conflicting versions</a>.
+        These conflicts can be resolved by a selecting a <em>winner</em>-version either
+        <a href="http://rbmhtechnology.github.io/eventuate/user-guide.html#automated-conflict-resolution">automatically</a>
+        or
+        <a href="http://rbmhtechnology.github.io/eventuate/user-guide.html#interactive-conflict-resolution"><em>interactively</em></a>.
+        See the <a href="#tutorial/8" class="shortcut">section</a> on resolving conflicts in the example application for an
+        interactive example.
+    </p>
+</div>
+<div>
+    <h2>Testing the application</h2>
+
+    <p>
+        While seeing the replication and conflict detection in a log-file is nice, you
+        would typically want to write automated tests to check correct behaviour of
+        the application in these circumstances.
+    </p>
+    <p>
+       For this akka comes with the amazing
+        <a href="http://doc.akka.io/docs/akka/2.3.9/dev/multi-node-testing.html">multi-node-testing-toolkit</a>
+        and
+        <a href="#code/src/multi-jvm/scala/sample/eventuate/OrderSpec.scala" class="shortcut">OrderSpec</a>
+        uses exactly this to verify that the application behaves as expected
+        when distributed to two JVMs.
+    </p>
+    <p>
+        A multi-jvm test basically consists out of two parts:
+    </p>
+    <ul>
+        <li>A <a href="http://doc.akka.io/api/akka/2.3.10/#akka.remote.testkit.MultiNodeConfig">MultiNodeConfig</a>
+            defining the common configuration and the <em>nodes</em> that take part in the test</li>
+        <li>A (or several) <a href="http://doc.akka.io/api/akka/2.3.10/#akka.remote.testkit.MultiNodeSpec">MultiNodeSpec</a>(s)
+            defining the actual test-logic.</li>
+    </ul>
+    <p>
+        The <code>MultiNodeConfig</code> <code>TwoNodesReplicationConfig</code> defines two roles
+        nodeA and nodeB which are equivalent
+        to nodes in the test. Additionally it configures replication properties that
+        ensure better timing for testing than the default ones.
+    </p>
+    <p>
+        The actual test-code can be found in <code>OrderSpec</code>. Each test uses the method
+        <code>withTwoOrderManagers</code> (implementing the
+        <a href="http://www.scalatest.org/user_guide/sharing_fixtures#loanFixtureMethods">loan-fixture</a>-pattern)
+        to get a <code>MultiNodeSpec</code>-reference that sets up the replication for the two nodes
+        (running in two JVMs!) and starts an
+        <code>OrderManager</code> (on each node). In addition this reference comes with some convenience methods that ease
+        testing the <code>OrderManager</code>. The actual test-code comes in the <code>withTwoOrderManagers</code>-block and is
+        executed on both JVMs simultaneously.
+    </p>
+    <h3>Create Orders on both nodes</h3>
+    <p>
+        The first test simply sends the <code>CreateOder</code>-command to the local <code>OrderManager</code> (on each node)
+    </p>
+    <pre><code>
+executeCommand(CreateOrder(newOrderId))
+    </code></pre>
+    <p>
+        waits for both <code>OrderCreated</code>-events (on each node)
+    </p>
+    <pre><code>
+val emittedEvents = listener.expectMsgAllClassOf(
+  List.fill(2)(classOf[OrderCreated]): _*)
+    </code></pre>
+    <p>
+        and verifies (on each node) that the <code>OrderManager</code>s contain both orders
+    </p>
+    <pre><code>
+allOrders shouldBe emittedEvents.map(toOrder).toSet
+    </code></pre>
+    <h3>Create Order on one node, add item on the other</h3>
+    <p>
+        The second test creates the order only on node A
+    </p>
+    <pre><code>
+runOn(config.nodeA)(executeCommand(CreateOrder(newOrderId)))
+    </code></pre>
+    <p>
+        waits for the order to be created (on each node)
+    </p>
+    <pre><code>
+val OrderCreated(orderId, _) = waitFor(orderCreated)
+    </code></pre>
+    <p>
+        and adds an item to the order only on node B
+    </p>
+    <pre><code>
+runOn(config.nodeB)(executeCommand(AddOrderItem(orderId, "item")))
+    </code></pre>
+    <p>
+        At the end the <code>OrderManager</code> (on each node) must contain the
+        same order.
+    </p>
+    <h3>Add item on both nodes simultaneously</h3>
+    <p>
+        The third test finally provokes a conflict by
+    </p>
+    <ol>
+        <li>creating an order on nodeA (and waiting for replication)</li>
+        <li>disconnecting both nodes (i.e. simulating a network partition)</li>
+        <li>adding an order on each node (which creates the conflict)</li>
+        <li>connecting the nodes again</li>
+    </ol>
+    <p>
+        Once the connection is reestablished the added items are replicated to the other node
+        and (since they took place concurrently) result in a conflict on each node. At the end the
+        test verifies (on each node) that the <code>OrderManager</code> contain both versions
+        of the order.
+    </p>
+</div>
+<div>
+    <h2>Resolving conflicts</h2>
+
+    <p>
+        To demonstrate interactive conflict resolution one can use the
+        <a href="#code/src/main/scala/sample/eventuate/OrderCli.scala" class="shortcut">OrderCli</a>
+        started from a terminal. For this execute in the root-directory of the project (Linux and Mac only):
+    </p>
+    <pre><code>
+./example A B C
+    </code></pre>
+    <p>
+        to start three <em>nodes</em> in three terminal windows on your machine. With
+    </p>
+    <pre><code>
+create Order1
+    </code></pre>
+    <p>
+        in any of the windows you can create an order and see that it gets replicated to all nodes.
+        Once that is done you can add an item in another window:
+    </p>
+    <pre><code>
+add Order1 Item1
+    </code></pre>
+    <p>
+        Now lets create a partition by stopping node C (Ctrl-C) and add different item in A's and B's
+        window:
+    </p>
+    <pre><code>
+(in A:) add Order1 ItemA
+(in B:) add Order1 ItemB
+    </code></pre>
+    <p>
+        Restart C (Cursor Up + Enter) to re-enable replication and you should see something as
+        follows in all windows:
+    </p>
+    <pre><code>
+14:17:46.863 OrderActor: [?]: OrderItemAdded: Conflict:
+- version 0: [Order1] items=Item1,ItemA cancelled=false
+- version 1: [Order1] items=Item1,ItemB cancelled=false
+    </code></pre>
+    <p>
+        The conflict can be resolved with the following command:
+    </p>
+    <pre><code>
+resolve Order1 0
+    </code></pre>
+    <p>
+        To avoid conflicting resolutions the example application implements the rule that a conflict can
+        only be resolved on the node that initially created the order. This command sends an
+        <code>Resolve(Order1, 0)</code> (defined in the eventuate-library) to the
+        <a href="#code/src/main/scala/sample/eventuate/OrderManager.scala" class="shortcut">OrderManager</a>
+        which in turn forwards it to the corresponding
+        <a href="#code/src/main/scala/sample/eventuate/OrderActor.scala" class="shortcut">OrderActor</a>.
+        When the command can be accepted a corresponding <code>Resolved(Order1, vector-timestamp)</code>
+        event is emitted and consumed and processed by all nodes.
+    </p>
+</div>
+</body>
+</html>
