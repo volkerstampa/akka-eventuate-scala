@@ -22,70 +22,6 @@ import com.rbmhtechnology.eventuate._
 
 import scala.util._
 
-/**
- * An event-sourced actor that manager a single order aggregate, identified by `orderId`.
- */
-class OrderActor(orderId: String, val replicaId: String, val eventLog: ActorRef) extends EventsourcedActor with OrderLogging {
-  import OrderActor._
-
-  override val aggregateId = Some(orderId)
-  private var order = VersionedAggregate(orderId, commandValidation, eventProjection)(OrderDomainCmd, OrderDomainEvt)
-
-  override val onCommand: Receive = {
-    case c: CreateOrder =>
-      processValidationResult(c.orderId, order.validateCreate(c))
-    case c: OrderCommand =>
-      processValidationResult(c.orderId, order.validateUpdate(c))
-    case c: Resolve =>
-      processValidationResult(c.id, order.validateResolve(c.selected, replicaId))
-    case GetState =>
-      val reply = order.aggregate match {
-        case Some(aggregate) => GetStateSuccess(Map(orderId -> aggregate.all))
-        case None            => GetStateSuccess(Map.empty)
-      }
-      sender() ! reply
-  }
-
-  override val onEvent: Receive = {
-    case e: OrderCreated =>
-      order = order.handleCreated(e, lastVectorTimestamp, lastSequenceNr)
-      info(s"${e.getClass.getSimpleName}: ${printOrder(order.versions)}")
-    case e: OrderEvent =>
-      order = order.handleUpdated(e, lastVectorTimestamp, lastSequenceNr)
-      info(s"${e.getClass.getSimpleName}: ${printOrder(order.versions)}")
-    case e: Resolved =>
-      order = order.handleResolved(e, lastVectorTimestamp, lastSequenceNr)
-      info(s"Resolved Conflict, keep: ${printOrder(order.versions)}")
-  }
-
-  override def recovered(): Unit =
-    if(order.versions.nonEmpty) info(s"Initialized from Log: ${printOrder(order.versions)}")
-
-  private def processValidationResult(orderId: String, result: Try[Any]): Unit = result match {
-    case Failure(err) =>
-      sender() ! CommandFailure(orderId, err)
-    case Success(evt) => persist(evt) {
-      case Success(e) =>
-        onEvent(e)
-        sender() ! CommandSuccess(orderId)
-      case Failure(e) =>
-        sender() ! CommandFailure(orderId, e)
-    }
-  }
-
-  private def commandValidation: (Order, OrderCommand) => Try[OrderEvent] = {
-    case (_, c: CreateOrder) => Success(c.event.copy(creator = replicaId))
-    case (_, c: OrderCommand) => Success(c.event)
-  }
-
-  private def eventProjection: (Order, OrderEvent) => Order = {
-    case (_    , OrderCreated(`orderId`, _)) => Order(orderId)
-    case (order, OrderCancelled(`orderId`)) => order.cancel
-    case (order, OrderItemAdded(`orderId`, item)) => order.addItem(item)
-    case (order, OrderItemRemoved(`orderId`, item)) => order.removeItem(item)
-  }
-}
-
 object OrderActor {
   trait OrderCommand {
     def orderId: String
@@ -117,6 +53,11 @@ object OrderActor {
   case class CommandSuccess(orderId: String)
   case class CommandFailure(orderId: String, cause: Throwable)
 
+  // Snapshot command and replies
+  case class SaveSnapshot(orderId: String)
+  case class SaveSnapshotSuccess(orderId: String, metadata: SnapshotMetadata)
+  case class SaveSnapshotFailure(orderId: String, cause: Throwable)
+
   implicit object OrderDomainCmd extends DomainCmd[OrderCommand] {
     override def origin(cmd: OrderCommand): String = ""
   }
@@ -126,5 +67,87 @@ object OrderActor {
       case OrderCreated(_, creator) => creator
       case _ => ""
     }
+  }
+}
+
+/**
+ * An event-sourced actor that manages a single order aggregate, identified by `orderId`.
+ */
+class OrderActor(orderId: String, val replicaId: String, val eventLog: ActorRef) extends EventsourcedActor with OrderLogging {
+  import OrderActor._
+
+  override val id = s"s-${orderId}-${replicaId}"
+  override val aggregateId = Some(orderId)
+
+  private var order = VersionedAggregate(orderId, commandValidation, eventProjection)
+
+  override val onCommand: Receive = {
+    case c: CreateOrder =>
+      processValidationResult(c.orderId, order.validateCreate(c))
+    case c: OrderCommand =>
+      processValidationResult(c.orderId, order.validateUpdate(c))
+    case c: Resolve =>
+      processValidationResult(c.id, order.validateResolve(c.selected, replicaId))
+    case GetState =>
+      val reply = order.aggregate match {
+        case Some(aggregate) => GetStateSuccess(Map(orderId -> aggregate.all))
+        case None            => GetStateSuccess(Map.empty)
+      }
+      sender() ! reply
+    case c: SaveSnapshot => order.aggregate match {
+      case None =>
+        sender() ! SaveSnapshotFailure(orderId, new AggregateDoesNotExistException(orderId))
+      case Some(aggregate) =>
+        save(aggregate) {
+          case Success(m) => sender() ! SaveSnapshotSuccess(orderId, m)
+          case Failure(e) => sender() ! SaveSnapshotFailure(orderId, e)
+        }
+    }
+  }
+
+  override val onEvent: Receive = {
+    case e: OrderCreated =>
+      order = order.handleCreated(e, lastVectorTimestamp, lastSequenceNr)
+      info(s"${e.getClass.getSimpleName}: ${printOrder(order.versions)}")
+    case e: OrderEvent =>
+      order = order.handleUpdated(e, lastVectorTimestamp, lastSequenceNr)
+      info(s"${e.getClass.getSimpleName}: ${printOrder(order.versions)}")
+    case e: Resolved =>
+      order = order.handleResolved(e, lastVectorTimestamp, lastSequenceNr)
+      info(s"Resolved Conflict, keep: ${printOrder(order.versions)}")
+  }
+
+  override val onSnapshot: Receive = {
+    case aggregate: ConcurrentVersionsTree[Order, OrderEvent] =>
+      order = order.withAggregate(aggregate.withProjection(eventProjection))
+      println(s"[$orderId] Snapshot loaded:")
+      printOrder(order.versions)
+  }
+
+  override def onRecovered(): Unit =
+    if(order.versions.nonEmpty) info(s"Initialized from Log: ${printOrder(order.versions)}")
+
+  private def processValidationResult(orderId: String, result: Try[Any]): Unit = result match {
+    case Failure(err) =>
+      sender() ! CommandFailure(orderId, err)
+    case Success(evt) => persist(evt) {
+      case Success(e) =>
+        onEvent(e)
+        sender() ! CommandSuccess(orderId)
+      case Failure(e) =>
+        sender() ! CommandFailure(orderId, e)
+    }
+  }
+
+  private def commandValidation: (Order, OrderCommand) => Try[OrderEvent] = {
+    case (_, c: CreateOrder) => Success(c.event.copy(creator = replicaId))
+    case (_, c: OrderCommand) => Success(c.event)
+  }
+
+  private def eventProjection: (Order, OrderEvent) => Order = {
+    case (_    , OrderCreated(`orderId`, _)) => Order(orderId)
+    case (order, OrderCancelled(`orderId`)) => order.cancel
+    case (order, OrderItemAdded(`orderId`, item)) => order.addItem(item)
+    case (order, OrderItemRemoved(`orderId`, item)) => order.removeItem(item)
   }
 }

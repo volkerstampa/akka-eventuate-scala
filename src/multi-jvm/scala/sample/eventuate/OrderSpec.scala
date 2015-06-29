@@ -15,7 +15,7 @@ import com.rbmhtechnology.eventuate.log.leveldb.LeveldbEventLog
 import com.typesafe.config.{Config, ConfigFactory}
 import org.apache.commons.io.FileUtils
 import org.scalatest.{WordSpec, Matchers}
-import sample.eventuate.OrderActor._
+import OrderActor._
 
 import scala.reflect.{classTag, ClassTag}
 import scala.collection.JavaConverters.mapAsJavaMapConverter
@@ -37,10 +37,9 @@ class TwoNodesReplicationConfig(config: Config) extends MultiNodeConfig {
        |akka.loglevel = "ERROR"
        |akka.stdout-loglevel = "ERROR"
        |akka.test.single-expect-default = 10s
-       |log.replication.transfer-batch-size-max = 3
-       |log.replication.transfer-retry-interval = 1s
-       |log.replication.connect-retry-interval = 1s
-       |log.replication.failure-detection-limit = 60s
+       |eventuate.log.replication.batch-size-max = 3
+       |eventuate.log.replication.retry-interval = 1s
+       |eventuate.log.replication.failure-detection-limit = 60s
   """.stripMargin)))
 }
 
@@ -125,7 +124,7 @@ class OrderSpec extends WordSpec with Matchers {
       (block: M => O): O = {
     withTempDir { tempDir =>
       val config = multiNodeConfigFactory(
-        ConfigFactory.parseMap(Map("log.leveldb.dir" -> tempDir.toString).asJava))
+        ConfigFactory.parseMap(Map("eventuate.log.leveldb.dir" -> tempDir.toString).asJava))
       withMultiNode(multiNodeFactory(config))(block)
     }
   }
@@ -225,7 +224,7 @@ class MultiReplicationNode[C <: MultiNodeConfig](val config: C)
 }
 
 object EventListener {
-  private class TestEventConsumer(override val eventLog: ActorRef, listener: ActorRef)
+  private class TestEventConsumer(override val id: String, override val eventLog: ActorRef, listener: ActorRef)
       extends EventsourcedView {
 
     override def onCommand = ???
@@ -237,7 +236,8 @@ object EventListener {
   
   def apply(eventLog: ActorRef)(implicit system: ActorSystem): TestProbe = {
     val listener = TestProbe()
-    system.actorOf(Props(new TestEventConsumer(eventLog, listener.ref)))
+    val id = UUID.randomUUID().toString
+    system.actorOf(Props(new TestEventConsumer(id, eventLog, listener.ref)))
     listener
   }
 }

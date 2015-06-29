@@ -17,7 +17,6 @@
 package sample.eventuate
 
 import akka.actor.ActorRef
-
 import com.rbmhtechnology.eventuate.EventsourcedView
 
 object OrderView {
@@ -28,11 +27,13 @@ object OrderView {
 /**
  * Consumes events written by all event-sourced [[OrderActor]]s.
  */
-class OrderView(val eventLog: ActorRef) extends EventsourcedView {
+class OrderView(replicaId: String, val eventLog: ActorRef) extends EventsourcedView {
   import OrderActor._
   import OrderView._
 
   var updateCounts: Map[String, Int] = Map.empty
+
+  override val id = s"s-ov-$replicaId"
 
   override val onCommand: Receive = {
     case GetUpdateCount(orderId) => sender() ! GetUpdateCountSuccess(orderId, updateCounts.getOrElse(orderId, 0))

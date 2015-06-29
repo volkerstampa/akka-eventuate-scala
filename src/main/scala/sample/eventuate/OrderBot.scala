@@ -4,8 +4,8 @@ import java.util.UUID
 
 import akka.util.Timeout
 import akka.pattern.ask
+import OrderActor._
 import org.slf4j.LoggerFactory
-import sample.eventuate.OrderActor._
 
 import scala.concurrent.Await
 import scala.concurrent.duration.DurationInt
@@ -28,10 +28,7 @@ object OrderBot extends App {
     action.execute(currentLocation, i)
     Thread.sleep(3000)
   }
-  locations.foreach { loc =>
-    loc.system.shutdown()
-    loc.system.awaitTermination()
-  }
+  locations.foreach(loc => Await.result(loc.system.terminate(), 5.seconds))
 }
 
 trait Action {

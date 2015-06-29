@@ -55,8 +55,10 @@ akka.remote.netty.tcp.port=2554
         as well as an endpoint-id and the replication-partners on the other nodes:
     </p>
     <pre><code>
-endpoint.id = "C"
-endpoint.connections = ["127.0.0.1:2552", "127.0.0.1:2553", "127.0.0.1:2555"]
+eventuate {
+  endpoint.id = "C"
+  endpoint.connections = ["127.0.0.1:2552", "127.0.0.1:2553", "127.0.0.1:2555"]
+}
     </code></pre>
     <p>
         So in this case <code>ReplicationEndpoint</code> C listens on 127.0.0.1:2554 and connects to
@@ -79,7 +81,10 @@ endpoint.connections = ["127.0.0.1:2552", "127.0.0.1:2553", "127.0.0.1:2555"]
     Its main purpose is to maintain a <code>Map</code> of
     <a href="#code/src/main/scala/sample/eventuate/OrderActor.scala" class="shortcut">OrderActors</a>
     by id each one representing a specific
-    order and dispatch <code>OrderCommand</code>s or a <code>Resolve</code>-command to them (to modify the order).
+    order and dispatch <code>OrderCommand</code>s or a <code>Resolve</code>-command to them
+    (to modify the order) or a <code>SaveSnapshot</code>-command for taking a
+    <a href="http://rbmhtechnology.github.io/eventuate/reference/event-sourcing.html#snapshots">snapshot</a>
+    of the internal state of an order.
     Additionally it allows to retrieve the current state of all orders (currently in memory).
     </p>
 </div>
@@ -96,9 +101,11 @@ endpoint.connections = ["127.0.0.1:2552", "127.0.0.1:2553", "127.0.0.1:2555"]
         and that is why it defines
         the member <code>aggregateId</code>. This has to be an application wide unique id.
         Even eventsourced aggregate roots of different type must not share the same ids.
-        In addition to this it defines the members <code>replicaId</code> and <code>eventLog</code>.
-        <code>replicaId</code> typically
-        identifies a node or location. The idea is that there are several <code>OrderActor</code>-instances
+        In addition to this it defines the members <code>id</code> and <code>eventLog</code>.
+        <code>id</code> must be a globally unique id, so all other <code>EventsourcedActor</code>s or even
+        <code>EventsourcedView</code>s in the entire distributed setup must not share this id. Here it
+        is built as combination of <code>replicaId</code> that
+        identifies a node or location and <code>orderId</code>. The idea is that there are several <code>OrderActor</code>-instances
         with the same <code>orderId</code> (respectively <code>aggregateId</code>)
         at different nodes (and thus with different <code>replicaId</code>) and state-changes to one of them are replicated to the
         others so that they are eventually all in the same state.
@@ -377,7 +384,7 @@ runOn(config.nodeB)(executeCommand(AddOrderItem(orderId, "item")))
 
     <p>
         To demonstrate interactive conflict resolution one can use the
-        <a href="#code/src/main/scala/sample/eventuate/OrderCli.scala" class="shortcut">OrderCli</a>
+        <a href="#code/src/main/scala/sample/eventuate/OrderExample.scala" class="shortcut">OrderExample</a>
         started from a terminal. For this execute in the root-directory of the project (Linux and Mac only):
     </p>
     <pre><code>

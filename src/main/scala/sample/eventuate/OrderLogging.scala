@@ -1,9 +1,9 @@
 package sample.eventuate
 
-import akka.actor.{Actor, ActorLogging}
-import com.rbmhtechnology.eventuate.Eventsourced
+import akka.actor.ActorLogging
+import com.rbmhtechnology.eventuate.EventsourcedView
 
-trait OrderLogging extends ActorLogging { this: Actor with Eventsourced =>
+trait OrderLogging extends ActorLogging { this: EventsourcedView =>
 
   def replicaId: String
 

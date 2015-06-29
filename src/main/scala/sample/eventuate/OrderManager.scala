@@ -19,7 +19,6 @@ package sample.eventuate
 import akka.actor._
 import akka.pattern.ask
 import akka.util.Timeout
-
 import com.rbmhtechnology.eventuate.EventsourcedView
 import com.rbmhtechnology.eventuate.VersionedAggregate.Resolve
 
@@ -47,11 +46,14 @@ class OrderManager(val replicaId: String, val eventLog: ActorRef) extends Events
   private implicit val timeout = Timeout(10.seconds)
   private var orderActors: Map[String, ActorRef] = Map.empty
 
+  override val id = s"s-om-$replicaId"
+
   override val onCommand: Receive = {
     case c: OrderCommand =>
       info(s"Process command: ${c.toString}")
       orderActor(c.orderId) forward c
-    case r: Resolve      => orderActor(r.id) forward r
+    case c: SaveSnapshot => orderActor(c.orderId) forward c
+    case r: Resolve => orderActor(r.id) forward r
     case GetState if orderActors.isEmpty =>
       sender() ! GetStateSuccess(Map.empty)
     case GetState =>

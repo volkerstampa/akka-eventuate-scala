@@ -1,6 +1,6 @@
 #!/bin/bash -eu
 
 EXAMPLE_CONF=location-$1.conf
-EXAMPLE_MAIN=sample.eventuate.OrderCli
+EXAMPLE_MAIN=sample.eventuate.OrderExample
 
 sbt "test:runMain $EXAMPLE_MAIN $EXAMPLE_CONF"

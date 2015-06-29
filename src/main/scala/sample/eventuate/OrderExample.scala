@@ -19,14 +19,14 @@ package sample.eventuate
 import akka.actor._
 import com.rbmhtechnology.eventuate.VersionedAggregate._
 import com.rbmhtechnology.eventuate._
-import com.rbmhtechnology.eventuate.log.leveldb.LeveldbEventLog
-import com.typesafe.config.ConfigFactory
-import sample.eventuate.OrderView.{GetUpdateCount, GetUpdateCountSuccess}
 
-class OrderCli(manager: ActorRef, view: ActorRef) extends Actor {
+import scala.io.Source
+
+class OrderExample(manager: ActorRef, view: ActorRef) extends Actor {
   import OrderActor._
+  import OrderView._
 
-  val lines = io.Source.stdin.getLines
+  val lines = Source.stdin.getLines
 
   def receive = {
     case GetStateSuccess(state) =>
@@ -34,6 +34,13 @@ class OrderCli(manager: ActorRef, view: ActorRef) extends Actor {
       prompt()
     case GetStateFailure(cause) =>
       println(cause.getMessage)
+      prompt()
+    case SaveSnapshotSuccess(orderId, metadata) =>
+      println(s"[${orderId}] saved snapshot at sequence number ${metadata.sequenceNr}")
+      prompt()
+    case SaveSnapshotFailure(orderId, cause) =>
+      println(s"[${orderId}] save snapshot failed: ${cause}")
+      cause.printStackTrace()
       prompt()
     case GetUpdateCountSuccess(orderId, count) =>
       println(s"[${orderId}] update count = ${count}")
@@ -52,18 +59,19 @@ class OrderCli(manager: ActorRef, view: ActorRef) extends Actor {
       case "count"   :: id         :: Nil => view    ! GetUpdateCount(id)
       case "create"  :: id         :: Nil => manager ! CreateOrder(id)
       case "cancel"  :: id         :: Nil => manager ! CancelOrder(id)
+      case "save"    :: id         :: Nil => manager ! SaveSnapshot(id)
       case "add"     :: id :: item :: Nil => manager ! AddOrderItem(id, item)
       case "remove"  :: id :: item :: Nil => manager ! RemoveOrderItem(id, item)
       case "resolve" :: id :: idx  :: Nil => manager ! Resolve(id, idx.toInt)
       case       Nil => prompt()
       case "" :: Nil => prompt()
-      case na :: nas => println(s"unknown command: $na"); prompt()
+      case na :: nas => println(s"unknown command: ${na}"); prompt()
     }
   }
 
   def prompt(): Unit = {
     if (lines.hasNext) lines.next() match {
-      case "exit" => context.system.shutdown()
+      case "exit" => context.system.terminate()
       case line   => self ! line
     }
   }
@@ -72,10 +80,10 @@ class OrderCli(manager: ActorRef, view: ActorRef) extends Actor {
     prompt()
 }
 
-object OrderCli extends App {
+object OrderExample extends App {
   val orderLocation = new OrderLocation(args(0))
   val driver = orderLocation.system.actorOf(
-    Props(new OrderCli(orderLocation.manager, orderLocation.view))
-      .withDispatcher("cli-dispatcher"))
+    Props(new OrderExample(orderLocation.manager, orderLocation.view))
+      .withDispatcher("eventuate.cli-dispatcher"))
 }
 
