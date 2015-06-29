@@ -8,9 +8,9 @@ val project = Project(
   base = file("."),
   settings = Defaults.coreDefaultSettings ++ SbtMultiJvm.multiJvmSettings ++ Seq(
     name := "akka-eventuate-scala",
-    version := "0.1-SNAPSHOT",
+    version := "0.1",
     scalaVersion := "2.11.6",
-    resolvers += "OJO Snapshots" at "https://oss.jfrog.org/oss-snapshot-local",
+    resolvers += "Eventuate Releases" at "https://dl.bintray.com/rbmhtechnology/maven",
     libraryDependencies ++= Seq(
       "com.rbmhtechnology" %% "eventuate" % "0.1",
       "com.typesafe.akka" %% "akka-slf4j" % akkaVersion,
