@@ -195,13 +195,16 @@ class MultiReplicationNode[C <: MultiNodeConfig](val config: C)
   
   override def initialParticipants = roles.size
   
-  def newReplicationEndpointConnectedTo(replicationPartners: RoleName*) =
-    new ReplicationEndpoint(
+  def newReplicationEndpointConnectedTo(replicationPartners: RoleName*) = {
+    val endpoint = new ReplicationEndpoint(
       myself.name,
       Set(DefaultLogName),
       LeveldbEventLog.props(_),
       replicationPartners.toSet.map(toReplicationConnection))
-  
+    endpoint.activate()
+    endpoint
+  }
+
   def newListener(endpoint: ReplicationEndpoint): TestProbe = 
     EventListener(endpoint.logs(DefaultLogName))
 
