@@ -10,6 +10,7 @@ import com.typesafe.config.ConfigFactory
 class OrderLocation(val locationId: String) {
   val system = ActorSystem(DefaultRemoteSystemName, ConfigFactory.load(locationId))
   val endpoint = ReplicationEndpoint(id => LeveldbEventLog.props(id))(system)
+  endpoint.activate()
   val manager = system.actorOf(
     Props(new OrderManager(endpoint.id, endpoint.logs(DefaultLogName))))
   val view = system.actorOf(Props(new OrderView(endpoint.id, endpoint.logs(DefaultLogName))))

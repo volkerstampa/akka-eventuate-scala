@@ -9,7 +9,7 @@ val project = Project(
   settings = Defaults.coreDefaultSettings ++ SbtMultiJvm.multiJvmSettings ++ Seq(
     name := "akka-eventuate-scala",
     version := "0.4-SNAPSHOT",
-    scalaVersion := "2.11.6",
+    scalaVersion := "2.11.7",
     resolvers += "Eventuate Releases" at "https://dl.bintray.com/rbmhtechnology/maven",
     libraryDependencies ++= Seq(
       "com.rbmhtechnology" %% "eventuate" % "0.4",
