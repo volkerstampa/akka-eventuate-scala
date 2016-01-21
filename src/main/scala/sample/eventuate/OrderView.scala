@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Red Bull Media House GmbH <http://www.redbullmediahouse.com> - all rights reserved.
+ * Copyright (C) 2015 - 2016 Red Bull Media House GmbH <http://www.redbullmediahouse.com> - all rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,11 +35,11 @@ class OrderView(replicaId: String, val eventLog: ActorRef) extends EventsourcedV
 
   override val id = s"s-ov-$replicaId"
 
-  override val onCommand: Receive = {
+  override def onCommand = {
     case GetUpdateCount(orderId) => sender() ! GetUpdateCountSuccess(orderId, updateCounts.getOrElse(orderId, 0))
   }
 
-  override val onEvent: Receive = {
+  override def onEvent = {
     case oe: OrderEvent => updateCounts.get(oe.orderId) match {
       case Some(count) => updateCounts += (oe.orderId -> (count + 1))
       case None        => updateCounts += (oe.orderId -> 1)

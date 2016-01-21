@@ -37,8 +37,8 @@ class TwoNodesReplicationConfig(config: Config) extends MultiNodeConfig {
        |akka.loglevel = "ERROR"
        |akka.stdout-loglevel = "ERROR"
        |akka.test.single-expect-default = 10s
-       |eventuate.log.replication.batch-size-max = 3
-       |eventuate.log.replication.retry-interval = 1s
+       |eventuate.log.write-batch-size = 3
+       |eventuate.log.replication.retry-delay = 1s
        |eventuate.log.replication.failure-detection-limit = 60s
   """.stripMargin)))
 }

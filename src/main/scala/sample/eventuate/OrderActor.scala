@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Red Bull Media House GmbH <http://www.redbullmediahouse.com> - all rights reserved.
+ * Copyright (C) 2015 - 2016 Red Bull Media House GmbH <http://www.redbullmediahouse.com> - all rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,7 +32,7 @@ object OrderActor {
     def orderId: String
   }
 
-  // Order update commands
+  // Order commands
   case class CreateOrder(orderId: String) extends OrderCommand { val event = OrderCreated(orderId) }
   case class CancelOrder(orderId: String) extends OrderCommand { val event = OrderCancelled(orderId) }
   case class AddOrderItem(orderId: String, item: String) extends OrderCommand  { val event = OrderItemAdded(orderId, item) }
@@ -44,7 +44,7 @@ object OrderActor {
   case class OrderItemRemoved(orderId: String, item: String) extends OrderEvent
   case class OrderCancelled(orderId: String) extends OrderEvent
 
-  // Order read commands + replies
+  // Order queries + replies
   case object GetState
   case class GetStateSuccess(state: Map[String, Seq[Versioned[Order]]])
   case class GetStateFailure(cause: Throwable)
@@ -81,7 +81,7 @@ class OrderActor(orderId: String, val replicaId: String, val eventLog: ActorRef)
 
   private var order = VersionedAggregate(orderId, commandValidation, eventProjection)
 
-  override val onCommand: Receive = {
+  override def onCommand = {
     case c: CreateOrder =>
       processValidationResult(c.orderId, order.validateCreate(c))
     case c: OrderCommand =>
@@ -105,7 +105,7 @@ class OrderActor(orderId: String, val replicaId: String, val eventLog: ActorRef)
     }
   }
 
-  override val onEvent: Receive = {
+  override def onEvent = {
     case e: OrderCreated =>
       order = order.handleCreated(e, lastVectorTimestamp, lastSequenceNr)
       info(s"${e.getClass.getSimpleName}: ${printOrder(order.versions)}")
@@ -117,25 +117,24 @@ class OrderActor(orderId: String, val replicaId: String, val eventLog: ActorRef)
       info(s"Resolved Conflict, keep: ${printOrder(order.versions)}")
   }
 
-  override val onSnapshot: Receive = {
+  override def onSnapshot = {
     case aggregate: ConcurrentVersionsTree[Order, OrderEvent] =>
       order = order.withAggregate(aggregate.withProjection(eventProjection))
       println(s"[$orderId] Snapshot loaded:")
       printOrder(order.versions)
   }
 
-  override def onRecovered(): Unit =
-    if(order.versions.nonEmpty) info(s"Initialized from Log: ${printOrder(order.versions)}")
+  override def onRecovery() = {
+    case Success(()) => if (order.versions.nonEmpty) info(s"Initialized from Log: ${printOrder(order.versions)}")
+    case Failure(ex) =>
+  }
 
   private def processValidationResult(orderId: String, result: Try[Any]): Unit = result match {
     case Failure(err) =>
       sender() ! CommandFailure(orderId, err)
     case Success(evt) => persist(evt) {
-      case Success(e) =>
-        onEvent(e)
-        sender() ! CommandSuccess(orderId)
-      case Failure(e) =>
-        sender() ! CommandFailure(orderId, e)
+      case Success(e) => sender() ! CommandSuccess(orderId)
+      case Failure(e) => sender() ! CommandFailure(orderId, e)
     }
   }
 

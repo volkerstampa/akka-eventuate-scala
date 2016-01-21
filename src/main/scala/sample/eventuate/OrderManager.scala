@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Red Bull Media House GmbH <http://www.redbullmediahouse.com> - all rights reserved.
+ * Copyright (C) 2015 - 2016 Red Bull Media House GmbH <http://www.redbullmediahouse.com> - all rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -48,7 +48,7 @@ class OrderManager(val replicaId: String, val eventLog: ActorRef) extends Events
 
   override val id = s"s-om-$replicaId"
 
-  override val onCommand: Receive = {
+  override def onCommand = {
     case c: OrderCommand =>
       info(s"Process command: ${c.toString}")
       orderActor(c.orderId) forward c
@@ -61,11 +61,11 @@ class OrderManager(val replicaId: String, val eventLog: ActorRef) extends Events
       val statesF = orderActors.values.map(_.ask(GetState).mapTo[GetStateSuccess].map(_.state))
       Future.sequence(statesF).map(_.reduce(_ ++ _)) onComplete {
         case Success(states) => sdr ! GetStateSuccess(states)
-        case Failure(cause) => sdr ! GetStateFailure(cause)
+        case Failure(cause)  => sdr ! GetStateFailure(cause)
       }
   }
 
-  override val onEvent: Receive = {
+  override def onEvent = {
     // eagerly create order actor so that their console output is immediately visible
     case OrderCreated(orderId, _) if !orderActors.contains(orderId) => orderActor(orderId)
   }
