@@ -1,22 +1,23 @@
 import com.typesafe.sbt.SbtMultiJvm
 import com.typesafe.sbt.SbtMultiJvm.MultiJvmKeys.MultiJvm
 
-val akkaVersion = "2.4.1"
+val akkaVersion = "2.4.2"
 
 val project = Project(
   id = "akka-eventuate-scala",
   base = file("."),
   settings = Defaults.coreDefaultSettings ++ SbtMultiJvm.multiJvmSettings ++ Seq(
     name := "akka-eventuate-scala",
-    version := "0.5-SNAPSHOT",
+    version := "0.6-SNAPSHOT",
     scalaVersion := "2.11.7",
     resolvers += "Eventuate Releases" at "https://dl.bintray.com/rbmhtechnology/maven",
     libraryDependencies ++= Seq(
-      "com.rbmhtechnology" %% "eventuate" % "0.5",
+      "com.rbmhtechnology" %% "eventuate-core" % "0.6",
+      "com.rbmhtechnology" %% "eventuate-log-leveldb" % "0.6",
       "com.typesafe.akka" %% "akka-slf4j" % akkaVersion,
-      "ch.qos.logback" % "logback-classic" % "1.0.13",
+      "ch.qos.logback" % "logback-classic" % "1.1.6",
       "com.typesafe.akka" %% "akka-multi-node-testkit" % akkaVersion % Test,
-      "org.scalatest" %% "scalatest" % "2.2.4" % Test),
+      "org.scalatest" %% "scalatest" % "2.2.6" % Test),
     // make sure that MultiJvm test are compiled by the default test compilation
     compile in MultiJvm <<= (compile in MultiJvm) triggeredBy (compile in Test),
     // disable parallel tests

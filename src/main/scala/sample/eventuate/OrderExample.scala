@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 - 2016 Red Bull Media House GmbH <http://www.redbullmediahouse.com> - all rights reserved.
+ * Copyright 2015 - 2016 Red Bull Media House GmbH <http://www.redbullmediahouse.com> - all rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,8 +17,9 @@
 package sample.eventuate
 
 import akka.actor._
-import com.rbmhtechnology.eventuate.VersionedAggregate._
+
 import com.rbmhtechnology.eventuate._
+import com.rbmhtechnology.eventuate.VersionedAggregate._
 
 import scala.io.Source
 
