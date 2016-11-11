@@ -1,19 +1,19 @@
 import com.typesafe.sbt.SbtMultiJvm
 import com.typesafe.sbt.SbtMultiJvm.MultiJvmKeys.MultiJvm
 
-val akkaVersion = "2.4.2"
+val akkaVersion = "2.4.12"
 
 val project = Project(
   id = "akka-eventuate-scala",
   base = file("."),
   settings = Defaults.coreDefaultSettings ++ SbtMultiJvm.multiJvmSettings ++ Seq(
     name := "akka-eventuate-scala",
-    version := "0.6-SNAPSHOT",
-    scalaVersion := "2.11.7",
+    version := "0.8-SNAPSHOT",
+    scalaVersion := "2.11.8",
     resolvers += "Eventuate Releases" at "https://dl.bintray.com/rbmhtechnology/maven",
     libraryDependencies ++= Seq(
-      "com.rbmhtechnology" %% "eventuate-core" % "0.6",
-      "com.rbmhtechnology" %% "eventuate-log-leveldb" % "0.6",
+      "com.rbmhtechnology" %% "eventuate-core" % "0.8",
+      "com.rbmhtechnology" %% "eventuate-log-leveldb" % "0.8",
       "com.typesafe.akka" %% "akka-slf4j" % akkaVersion,
       "ch.qos.logback" % "logback-classic" % "1.1.6",
       "com.typesafe.akka" %% "akka-multi-node-testkit" % akkaVersion % Test,
